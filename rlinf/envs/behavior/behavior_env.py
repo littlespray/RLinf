@@ -16,6 +16,20 @@ import json
 import os
 from typing import Tuple
 
+# os.environ.setdefault("OMNI_KIT_XR_ENABLED", "0")
+# os.environ.setdefault("OMNI_KIT_ALLOW_ROOT", "1")
+# os.environ.setdefault("ISAACSIM_HEADLESS", "1")
+# os.environ.setdefault("OMNIGIBSON_HEADLESS", "1")
+
+# # Disable advanced GPU features that may not be supported (Ray Tracing, etc.)
+# os.environ.setdefault("OMNI_KIT_RENDERER_ENABLED", "0")
+# os.environ.setdefault("OMNI_KIT_RAYTRACING_ENABLED", "0")
+# os.environ.setdefault("CARB_GRAPHICS_MGPU_ENABLED", "0")
+
+# # Force basic rendering path
+# os.environ.setdefault("RENDER_MODE", "offscreen")
+# os.environ.setdefault("OMNIGIBSON_RENDER_MODE", "offscreen")
+
 import cv2
 import gymnasium as gym
 import numpy as np
@@ -41,6 +55,25 @@ gm.HEADLESS = True
 gm.ENABLE_OBJECT_STATES = True
 gm.USE_GPU_DYNAMICS = False
 gm.ENABLE_TRANSITION_RULES = True
+
+# [########################################################
+# # Disable ALL advanced rendering features to prevent GPU crashes
+# gm.ENABLE_HQ_RENDERING = False
+# gm.ENABLE_FLATCACHE = True
+# gm.ENABLE_TRANSITION_RULES = True
+
+# # Additional rendering settings to prevent Ray Tracing crashes
+# try:
+#     # Disable ray tracing and advanced GPU features
+#     gm.RENDER_QUALITY = "low"  # Use lowest render quality
+#     gm.ENABLE_RTX = False  # Disable Ray Tracing
+#     gm.ENABLE_RAYTRACING = False
+#     gm.RENDER_MODE = "offscreen"
+# except AttributeError:
+#     # Some versions may not have these attributes
+#     pass
+# ########################################################
+
 
 __all__ = ["BehaviorEnv"]
 
