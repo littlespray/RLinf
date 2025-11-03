@@ -13,16 +13,14 @@ hydra:
 cluster:
   num_nodes: 1
   component_placement:
-    actor: 0-3
-    env: 0-1
-    rollout: 2-3
+    actor,env,rollout: all
 
 runner:
   task_type: embodied
   logger:
     log_path: "../results"
     project_name: rlinf
-    experiment_name: "openvla_env4_ppo_mb2_p1"
+    experiment_name: "test_openvla"
     logger_backends: ["wandb"] # wandb, swanlab
 
   max_epochs: 1000
@@ -40,11 +38,11 @@ algorithm:
   use_fixed_reset_state_ids: False
   normalize_advantages: True
   kl_penalty: kl  # how to estimate kl divergence: kl or kl_penalty
-  group_size: 1
+  group_size: 4
   n_chunk_steps: 20
   n_eval_chunk_steps: 20
-  num_group_envs: 4
-  rollout_epoch: 8
+  num_group_envs: 2
+  rollout_epoch: 2
   reward_type: chunk_level
   logprob_type: token_level
   entropy_type: token_level
@@ -110,7 +108,7 @@ actor:
   training_backend: "fsdp"
   checkpoint_load_path: "/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/RLinf-OpenVLAOFT-Behavior/"
   checkpoint_save_path: "../results"
-  micro_batch_size: 2
+  micro_batch_size: 4
   global_batch_size: 160
   seed: 1234
   enable_offload: True

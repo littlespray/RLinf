@@ -1,4 +1,6 @@
 #!/bin/bash
+export RAY_worker_register_timeout_seconds=600
+export RAY_STARTUP_TIMEOUT=600
 
 # Parameter check
 if [ -z "$RANK" ]; then
