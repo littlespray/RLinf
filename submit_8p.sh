@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=rlinf_multi_node
-#SBATCH --nodes=4
+#SBATCH --nodes=32
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
 #SBATCH --time=168:00:00
@@ -51,30 +51,9 @@ srun \
     export OMNIGIBSON_DATA_PATH=/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/DATASETS/datasets/
     export OMNIGIBSON_HEADLESS=1
 
-    mkdir -p /usr/share/glvnd/egl_vendor.d
-    cat <<'EOF' > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
-{
-    "file_format_version" : "1.0.0",
-    "ICD" : {
-        "library_path" : "libEGL_nvidia.so.0"
-    }
-}
-EOF
-
-    mkdir -p /etc/vulkan/icd.d
-    cat <<'EOF' > /etc/vulkan/icd.d/nvidia_icd.json
-{
-    "file_format_version" : "1.0.0",
-    "ICD" : {
-        "library_path" : "libGLX_nvidia.so.0",
-        "api_version" : "1.3.194"
-    }
-}
-EOF
-
     if [[ \${SLURM_PROCID} -eq 0 ]]; then
-      bash ray_utils/check_ray.sh 16
-      bash examples/embodiment/run_embodiment.sh multi_node
+      bash ray_utils/check_ray.sh 32
+      bash examples/embodiment/run_embodiment.sh b1k_8p
     fi
     sleep infinity
   "

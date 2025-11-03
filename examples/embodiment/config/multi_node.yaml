@@ -13,16 +13,16 @@ hydra:
 cluster:
   num_nodes: 4
   component_placement:
-    actor: 0-3
-    env: 4-5
-    rollout: 6-15
+    env: 0-1
+    rollout: 2-15
+    actor: 2-15
 
 runner:
   task_type: embodied
   logger:
     log_path: "../results"
     project_name: rlinf
-    experiment_name: "openvla_env4_r4_ppo_mb2_p8"
+    experiment_name: "openvla_4p_ppo"
     logger_backends: ["wandb"]  # wandb, swanlab
   max_epochs: 1000
   max_steps: -1
@@ -88,7 +88,7 @@ rollout:
   mode: "colocate"
   backend: "huggingface"
   model_dir: "/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/RLinf-OpenVLAOFT-Behavior/"
-  enable_offload: False
+  enable_offload: True
   pipeline_stage_num: 1
 
 actor:
@@ -103,7 +103,7 @@ actor:
   micro_batch_size: 2
   global_batch_size: 160
   seed: 1234
-  enable_offload: False
+  enable_offload: True
   model:
     model_name: "openvla_oft"
     value_type: ${algorithm.reward_type}

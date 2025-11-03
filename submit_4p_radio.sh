@@ -74,7 +74,10 @@ EOF
 
     if [[ \${SLURM_PROCID} -eq 0 ]]; then
       bash ray_utils/check_ray.sh 16
-      bash examples/embodiment/run_embodiment.sh multi_node
+      bash examples/embodiment/run_embodiment.sh multi_node \
+      runner.logger.experiment_name='"radio_4p_ppo_openvlaoft"' \
+      env/train.tasks.activity_task_indices='"0"' \
+      env/eval.tasks.activity_task_indices='"0"'
     fi
     sleep infinity
   "
