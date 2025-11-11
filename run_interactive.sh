@@ -6,7 +6,8 @@ srun \
   --account general_cs_infra \
   --partition gpu_nodes_all \
   --time 168:00:00 \
-  --gpus 4 \
+  --gpus-per-node 4 \
+  --nodes 1 \
   --pty \
   --container-image /lustre/fs1/portfolios/general/users/maxzhaoshuol/docker/rlinf_b1k.sqsh \
   --container-mounts "\
