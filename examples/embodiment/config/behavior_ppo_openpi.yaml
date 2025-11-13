@@ -32,11 +32,12 @@ runner:
   save_interval: 40
   seq_length: 4096
   max_prompt_length: 50
+  only_eval: False
 
 algorithm:
   auto_reset: False
   ignore_terminations: False
-  use_fixed_reset_state_ids: True
+  use_fixed_reset_state_ids: False
   normalize_advantages: True
   kl_penalty: kl  # how to estimate kl divergence: kl or kl_penalty
   group_size: 1
@@ -100,7 +101,7 @@ rollout:
     queue_size: 0
   mode: "colocate"
   generation_backend: "huggingface"
-  model_dir: "/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/RLinf-Pi05-SFT/"
+  model_dir: "/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/pi05_pt12_g80/"
   recompute_logprobs: False
   precision: ${actor.model.precision}
   enable_offload: True
@@ -113,7 +114,7 @@ actor:
     queue_name: "replay_buffer"
     queue_size: 0
   training_backend: "fsdp"
-  checkpoint_load_path: "/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/RLinf-Pi05-SFT/"
+  checkpoint_load_path: "/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/pi05_pt12_g80/"
   checkpoint_save_path: "../results"
   micro_batch_size: 2 # TODO
   global_batch_size: 20 # TODO maximum : global batch size = micro batch size * actor num_processes.
@@ -122,14 +123,14 @@ actor:
 
   model:
     model_name: "openpi"
-    precision: null
-    num_action_chunks: 10 # interface for the env
-    action_dim: 7 # TODO: change to 23
+    precision: "bf16"
+    num_action_chunks: 8 # interface for the env
+    action_dim: 23 # TODO: change to 23
     is_lora: False
     lora_rank: 32
     gradient_checkpointing: True
-    use_wrist_image: True
-    use_proprio: True
+    use_wrist_image: False
+    use_proprio: False
     num_steps: 5
     sharding_strategy: "no_shard"
     add_value_head: True
@@ -145,6 +146,7 @@ actor:
       pi05: True
       value_after_vlm: True
       value_vlm_mode: "mean_token"
+      simulator_type: "behavior"
 
   optim:
     lr: 5.0e-6
@@ -183,7 +185,7 @@ actor:
       enabled: False                 # if True, automatic mixed precision (AMP) will be used in FSDP/FSDP2 training.
       precision: "bf16"              # precision for AMP, options are ["fp16" , "bf16"]
       use_grad_scaler: False         # if True, GradScaler will be used for AMP training to prevent underflow.
-      
+
 reward:
   use_reward_model: False
 

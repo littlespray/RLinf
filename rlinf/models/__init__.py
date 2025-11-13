@@ -196,6 +196,11 @@ def get_model(model_path, cfg: DictConfig, override_config_kwargs=None):
                 actor_train_config = get_openpi_config("pi05_metaworld")
             else:
                 actor_train_config = get_openpi_config("pi0_metaworld")
+        elif simulator_type == "behavior":
+            if getattr(cfg.openpi, "pi05", False):
+                actor_train_config = get_openpi_config("pi05_behavior")
+            else:
+                raise ValueError("Only pi05 is supported for behavior environment")
         else:
             raise ValueError(f"Invalid simulator type: {simulator_type}")
         actor_model_config = actor_train_config.model
@@ -222,35 +227,44 @@ def get_model(model_path, cfg: DictConfig, override_config_kwargs=None):
             actor_train_config.assets_dirs, actor_model_config
         )
         norm_stats = None
-        if norm_stats is None:
+        use_quantiles = False
+        # Try to load norm stats; if missing, fall back to running without Normalize/Unnormalize transforms
+        try:
             # We are loading the norm stats from the checkpoint instead of the config assets dir to make sure
             # that the policy is using the same normalization stats as the original training process.
             if data_config.asset_id is None:
                 raise ValueError("Asset id is required to load norm stats.")
-            norm_stats = _checkpoints.load_norm_stats(
-                checkpoint_dir, data_config.asset_id
-            )
+            norm_stats = _checkpoints.load_norm_stats(checkpoint_dir, data_config.asset_id)
+            use_quantiles = bool(getattr(data_config, "use_quantile_norm", False))
+        except FileNotFoundError:
+            norm_stats = None
+            use_quantiles = False
+
         # wrappers
         repack_transforms = transforms.Group()
         default_prompt = None
+        input_transforms_list = []
+        input_transforms_list.extend(repack_transforms.inputs)
+        input_transforms_list.append(transforms.InjectDefaultPrompt(default_prompt))
+        input_transforms_list.extend(data_config.data_transforms.inputs)
+        if norm_stats is not None:
+            input_transforms_list.append(
+                transforms.Normalize(norm_stats, use_quantiles=use_quantiles)
+            )
+        input_transforms_list.extend(data_config.model_transforms.inputs)
+
+        output_transforms_list = []
+        output_transforms_list.extend(data_config.model_transforms.outputs)
+        if norm_stats is not None:
+            output_transforms_list.append(
+                transforms.Unnormalize(norm_stats, use_quantiles=use_quantiles)
+            )
+        output_transforms_list.extend(data_config.data_transforms.outputs)
+        output_transforms_list.extend(repack_transforms.outputs)
+
         model.setup_wrappers(
-            transforms=[
-                *repack_transforms.inputs,
-                transforms.InjectDefaultPrompt(default_prompt),
-                *data_config.data_transforms.inputs,
-                transforms.Normalize(
-                    norm_stats, use_quantiles=data_config.use_quantile_norm
-                ),
-                *data_config.model_transforms.inputs,
-            ],
-            output_transforms=[
-                *data_config.model_transforms.outputs,
-                transforms.Unnormalize(
-                    norm_stats, use_quantiles=data_config.use_quantile_norm
-                ),
-                *data_config.data_transforms.outputs,
-                *repack_transforms.outputs,
-            ],
+            transforms=input_transforms_list,
+            output_transforms=output_transforms_list,
         )
 
     else:

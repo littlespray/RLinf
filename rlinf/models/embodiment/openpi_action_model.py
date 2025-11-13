@@ -51,7 +51,7 @@ class OpenPi0Config(Pi0Config):
     ignore_last: bool = False
     value_after_vlm: bool = False
     value_vlm_mode: str = "mean_token"  # last_token, mean_token, first_token
-    simulator_type: str = "libero"  # libero, maniskill, robotwin, metaworld
+    simulator_type: str = "libero"  # libero, maniskill, robotwin, metaworl[d
 
 
 class OpenPi0ForRLActionPrediction(PI0Pytorch):
@@ -130,6 +130,12 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
         inputs = jax.tree.map(lambda x: x, obs)
         # process input
         first_process = "prompt" in inputs.keys()
+        
+        # Record original dtypes for state (to restore later if needed)
+        original_state_dtype = None
+        if "observation/state" in inputs and torch.is_tensor(inputs["observation/state"]):
+            original_state_dtype = inputs["observation/state"].dtype
+        
         if first_process:
             inputs.pop("prompt")
         else:
@@ -139,10 +145,16 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
                 if value
                 in ["observation/image", "observation/wrist_image", "observation/state"]
             }
-        # tensor -> numpy
-        inputs = jax.tree.map(
-            lambda x: np.asarray(x.detach().cpu()) if torch.is_tensor(x) else x, inputs
-        )
+        # tensor -> numpy (handle bfloat16 by converting to float32 for numpy, then back)
+        def to_numpy(x):
+            if torch.is_tensor(x):
+                # Numpy doesn't support bfloat16, so convert to float32 for numpy operations
+                if x.dtype == torch.bfloat16:
+                    return np.asarray(x.float().detach().cpu())
+                return np.asarray(x.detach().cpu())
+            return x
+        
+        inputs = jax.tree.map(to_numpy, inputs)
         batch_size = next(v.shape[0] for v in inputs.values() if hasattr(v, "shape"))
         # split & transform
         transformed_samples = []
@@ -150,12 +162,16 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             sample = jax.tree.map(lambda x: x[i], inputs)
             # convert from [3,256,256] -> [256,256,3]
             if transpose:
-                sample = jax.tree.map(
-                    lambda x: x.transpose(1, 2, 0)
-                    if len(x.shape) == 3 and transpose
-                    else x,
-                    sample,
-                )
+                def _maybe_transpose(x):
+                    if hasattr(x, "shape"):
+                        # Single image: [C, H, W] -> [H, W, C]
+                        if len(x.shape) == 3:
+                            return x.transpose(1, 2, 0)
+                        # Multiple wrist images: [N_IMG, C, H, W] -> [N_IMG, H, W, C]
+                        if len(x.shape) == 4 and x.shape[1] == 3:
+                            return x.transpose(0, 2, 3, 1)
+                    return x
+                sample = jax.tree.map(_maybe_transpose, sample)
             else:
                 sample = jax.tree.map(lambda x: x if len(x.shape) == 3 else x, sample)
             if first_process:
@@ -173,6 +189,11 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
         if not first_process:
             inputs["tokenized_prompt"] = obs["tokenized_prompt"]
             inputs["tokenized_prompt_mask"] = obs["tokenized_prompt_mask"]
+        
+        # Restore original dtype for state if it was bfloat16
+        if original_state_dtype == torch.bfloat16 and "state" in inputs:
+            inputs["state"] = inputs["state"].to(torch.bfloat16)
+        
         return inputs
 
     def output_transform(self, outputs):
@@ -248,15 +269,25 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
         }
 
     def input_processor(self, env_processed_obs):
+        images = env_processed_obs["images"]
+        bsz = images.shape[0] if torch.is_tensor(images) else len(images)
+        state = env_processed_obs["states"]
+        if state is None:
+            state = torch.zeros((bsz, 1), dtype=torch.float32)
         to_process_obs = {
-            "observation/image": env_processed_obs["images"],
-            "observation/state": env_processed_obs["states"],
+            "observation/image": images,
+            "observation/state": state,
             "prompt": env_processed_obs["task_descriptions"],
         }
-        if self.config.simulator_type == "libero":
-            to_process_obs["observation/wrist_image"] = env_processed_obs[
-                "wrist_images"
-            ]
+        # Add wrist images for environments that have them (libero, behavior)
+        if self.config.simulator_type in ["libero", "behavior"]:
+            wrist_images = env_processed_obs["wrist_images"]
+            # wrist_images shape: [N_ENV, N_IMG, C, H, W]
+            # OpenPI expects a single wrist image per sample, so take the first one
+            # Result shape: [N_ENV, C, H, W]
+            if torch.is_tensor(wrist_images) and wrist_images.dim() == 5:
+                wrist_images = wrist_images[:, 0]  # Take first wrist camera
+            to_process_obs["observation/wrist_image"] = wrist_images
         processed_obs = self.input_transform(to_process_obs)
         device = next(self.parameters()).device
         for key, value in processed_obs.items():
@@ -288,16 +319,26 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             {"actions": outputs["actions"], "state": observation.state}
         )["actions"].numpy()
 
+        # Handle states - use processed states if original is None
+        states = env_obs["states"]
+        if states is None:
+            # Use the processed state from input_processor (zero tensor)
+            states = processed_obs["observation/state"] if "observation/state" in processed_obs else observation.state
+        
         forward_inputs = {
             "chains": outputs["chains"],
             "denoise_inds": outputs["denoise_inds"],
             "observation/image": env_obs["images"],
-            "observation/state": env_obs["states"],
+            "observation/state": states,
             "tokenized_prompt": processed_obs["tokenized_prompt"],
             "tokenized_prompt_mask": processed_obs["tokenized_prompt_mask"],
         }
-        if self.config.simulator_type == "libero":
-            forward_inputs["observation/wrist_image"] = env_obs["wrist_images"]
+        if self.config.simulator_type in ["libero", "behavior"]:
+            # Use the processed wrist_images (already reduced from 5D to 4D)
+            wrist_images_for_forward = env_obs["wrist_images"]
+            if torch.is_tensor(wrist_images_for_forward) and wrist_images_for_forward.dim() == 5:
+                wrist_images_for_forward = wrist_images_for_forward[:, 0]
+            forward_inputs["observation/wrist_image"] = wrist_images_for_forward
 
         result = {
             "prev_logprobs": outputs["prev_logprobs"],
@@ -457,8 +498,10 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
         # expand the shape
         bsize = state.shape[0]
         device = state.device
+        dtype = state.dtype
+        x_t = x_t.to(dtype=dtype)
         if isinstance(idx, int):
-            idx = torch.tensor(idx).expand(bsize)
+            idx = torch.tensor(idx, device=device).expand(bsize)
         # build parameters
         if self.config.noise_anneal:
             # noise annealing
@@ -469,12 +512,12 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
                 * min(self.global_step, anneal_steps)
                 / anneal_steps
             )
-            noise_level = torch.tensor(noise_level).to(device)
+            noise_level = torch.tensor(noise_level, device=device, dtype=dtype)
         else:
             # fixed noise level
-            noise_level = torch.tensor(self.config.noise_level).to(device)
-        timesteps = torch.linspace(1, 1 / denoise_steps, denoise_steps, device=device)
-        timesteps = torch.cat([timesteps, torch.tensor([0.0], device=device)])
+            noise_level = torch.tensor(self.config.noise_level, device=device, dtype=dtype)
+        timesteps = torch.linspace(1, 1 / denoise_steps, denoise_steps, device=device, dtype=dtype)
+        timesteps = torch.cat([timesteps, torch.tensor([0.0], device=device, dtype=dtype)])
         # input parameters
         t_input = timesteps[idx]
         delta = timesteps[idx] - timesteps[idx + 1]
@@ -486,6 +529,8 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             x_t,
             t_input,
         )
+        if hasattr(self.action_out_proj, "weight"):
+            suffix_out = suffix_out.to(dtype=self.action_out_proj.weight.dtype)
         v_t = self.action_out_proj(suffix_out)  # [bs,n_action_steps,max_action_dim]
         # value prediction
         if (
@@ -503,9 +548,10 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             # detach critic input
             if self.config.detach_critic_input:
                 suffix_out_value = suffix_out_value.detach()
+            suffix_out_value = suffix_out_value.to(dtype=torch.bfloat16)
             value_t = self.value_head(suffix_out_value)[:, 0]
         else:
-            value_t = torch.zeros((bsize), device=device)
+            value_t = torch.zeros((bsize), device=device, dtype=dtype)
         # ode sde mix sampling
         delta = delta[:, None, None].expand_as(x_t)
         t_input = t_input[:, None, None].expand_as(x_t)
@@ -529,9 +575,9 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
                 x1_weight = t_input - delta - sigma_i**2 * delta / (2 * t_input)
                 x_t_std = torch.sqrt(delta) * sigma_i
             elif self.config.noise_method == "flow_cps":
-                pi = torch.pi
-                cos_term = torch.cos(pi * noise_level / 2).to(device)
-                sin_term = torch.sin(pi * noise_level / 2).to(device)
+                pi = torch.tensor(torch.pi, device=device, dtype=dtype)
+                cos_term = torch.cos(pi * noise_level / 2)
+                sin_term = torch.sin(pi * noise_level / 2)
                 x0_weight = torch.ones_like(t_input) - (t_input - delta)
                 x1_weight = (t_input - delta) * cos_term
                 x_t_std = (t_input - delta) * sin_term
@@ -589,7 +635,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
 
         suffix_out = outputs_embeds[1]
         suffix_out = suffix_out[:, -self.config.action_horizon :]
-        suffix_out = suffix_out.to(dtype=torch.float32)
+        # Keep original dtype (bfloat16) to match model weights
         return suffix_out
 
     # TODO: to check potential nan here
@@ -688,7 +734,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             all_length = 816
         if self.config.simulator_type == "metaworld":
             camera_num = 1
-        elif self.config.simulator_type == "libero":
+        elif self.config.simulator_type in ["libero", "behavior"]:
             camera_num = 2
         else:
             raise ValueError(f"Invalid simulator type: {self.config.simulator_type}")
@@ -704,7 +750,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             prefix_mask = [True] * 1 + [False] * (all_length - 1)
         prefix_out_value = prefix_output[:, prefix_mask, :]
         prefix_out_value = prefix_out_value.mean(dim=1, keepdim=False)
-        prefix_out_value = prefix_out_value.to(dtype=torch.float32)
+        prefix_out_value = prefix_out_value.to(dtype=torch.bfloat16)
         values_vlm = self.value_head(prefix_out_value)[:, 0]
         return values_vlm
 
@@ -713,3 +759,4 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch):
             self.paligemma_with_expert.paligemma.eval()
             for params in self.paligemma_with_expert.paligemma.parameters():
                 params.requires_grad = False
+

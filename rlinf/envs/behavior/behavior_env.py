@@ -136,6 +136,7 @@ class BehaviorEnv(gym.Env):
             "wrist_images": torch.stack(
                 [obs["wrist_images"] for obs in extracted_obs_list], axis=0
             ),  # [N_ENV, N_IMG, C, H, W]
+            "states": None,  # Behavior environment doesn't provide proprioceptive states
             "task_descriptions": [
                 self.task_description for i in range(self.cfg.num_envs)
             ],

@@ -11,9 +11,9 @@ srun \
   --pty \
   --container-image /lustre/fs1/portfolios/general/users/maxzhaoshuol/docker/rlinf_b1k.sqsh \
   --container-mounts "\
-${CACHE_DIR}:/root/.cache/ov:rw,\
 /lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior:/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior:rw,\
-/home/maxzhaoshuol:/home/maxzhaoshuol:rw" \
+/home/maxzhaoshuol:/home/maxzhaoshuol:rw,\
+${CACHE_DIR}:/home/maxzhaoshuol/.cache/ov:rw" \
   --container-workdir /lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/RLinf \
   --no-container-mount-home \
   /bin/bash

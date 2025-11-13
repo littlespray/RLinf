@@ -13,5 +13,5 @@ export OMNIGIBSON_HEADLESS=1
 export ISAAC_PATH=/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/rlinf_assets/isaac-sim
 export OMNIGIBSON_DATA_PATH=/lustre/fs1/portfolios/general/users/maxzhaoshuol/behavior/DATASETS/datasets/
 
-
+export TORCHDYNAMO_DISABLE=1
 bash examples/embodiment/run_embodiment.sh behavior_ppo_openpi
